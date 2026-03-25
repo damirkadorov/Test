@@ -3,7 +3,7 @@
 
 """
 ChatGPT Registration Bot
-Полная версия с улучшенным заполнением даты
+С умным поиском поля даты рождения
 """
 
 import time
@@ -96,30 +96,7 @@ def get_verification_code(email, password, timeout=120):
     
     return None
 
-def find_field_by_label(sb, label_text, timeout=5):
-    try:
-        xpath = f"//label[contains(text(), '{label_text}')]"
-        label = sb.find_element(xpath, timeout=timeout)
-        if label:
-            for_id = label.get_attribute("for")
-            if for_id:
-                try:
-                    return sb.find_element(f"#{for_id}", timeout=2)
-                except:
-                    pass
-    except:
-        pass
-    return None
-
-def find_field_by_placeholder(sb, placeholder_text, timeout=5):
-    try:
-        return sb.find_element(f"input[placeholder*='{placeholder_text}']", timeout=timeout)
-    except:
-        pass
-    return None
-
 def find_password_field(sb, timeout=10):
-    # Ищем поле пароля
     try:
         field = sb.find_element("input[type='password']", timeout=timeout)
         if field:
@@ -137,101 +114,64 @@ def find_password_field(sb, timeout=10):
     return None
 
 def fill_date_field(sb, birth_date):
-    """Заполняет поле даты рождения (улучшенная версия)"""
+    """Заполняет поле даты рождения (улучшенная версия с умным поиском)"""
     print(f"[*] Заполняю дату: {birth_date}")
     
-    # Способ 1: Ищем сегменты даты
+    # 1. Поиск составных полей (React Aria / сегменты)
     try:
         segments = sb.find_elements("[data-rac-data-type]")
         if len(segments) >= 3:
             month, day, year = birth_date.split('/')
-            
             for i, seg in enumerate(segments[:3]):
-                try:
-                    sb.execute_script("arguments[0].click();", seg)
-                    time.sleep(0.3)
-                    if i == 0:
-                        human_type(seg, month)
-                    elif i == 1:
-                        human_type(seg, day)
-                    else:
-                        human_type(seg, year)
-                    time.sleep(0.3)
-                except Exception as e:
-                    print(f"[-] Ошибка при вводе сегмента {i}: {e}")
-                    pass
-            
+                sb.execute_script("arguments[0].click();", seg)
+                time.sleep(0.3)
+                if i == 0:
+                    human_type(seg, month)
+                elif i == 1:
+                    human_type(seg, day)
+                else:
+                    human_type(seg, year)
             print("[✓] Дата заполнена через сегменты")
             return True
     except:
         pass
-    
-    # Способ 2: Ищем input type="date"
+
+    # 2. Поиск ближайшего input рядом с текстом "Birth" или "Дата"
     try:
-        date_field = sb.find_element("input[type='date']", timeout=3)
-        if date_field:
-            date_field.click()
-            time.sleep(0.2)
-            try:
-                date_field.clear()
-            except:
-                pass
-            date_field.send_keys(birth_date.replace('/', ''))
-            print("[✓] Дата заполнена через input date")
-            return True
-    except:
-        pass
-    
-    # Способ 3: Ищем по лейблу
-    try:
-        labels = ["Birthday", "Date of birth", "Birth date", "Дата рождения"]
-        for label_text in labels:
-            field = find_field_by_label(sb, label_text, 2)
-            if field:
+        xpath_smart = "//text()[contains(translate(., 'BIRTH', 'birth'), 'birth') or contains(translate(., 'ДАТА', 'дата'), 'дата')]/ancestor::*[position()=1]//input | //*[contains(translate(text(), 'BIRTH', 'birth'), 'birth')]/following::input[1]"
+        inputs = sb.find_elements(xpath_smart)
+        for field in inputs:
+            if field.is_displayed():
                 field.click()
                 time.sleep(0.2)
                 try:
                     field.clear()
                 except:
                     pass
-                human_type(field, birth_date)
-                print(f"[✓] Дата заполнена через лейбл: {label_text}")
+                field.send_keys(birth_date.replace('/', ''))
+                print("[✓] Дата заполнена через умный поиск XPath")
                 return True
-    except:
+    except Exception as e:
         pass
-    
-    # Способ 4: Ищем по placeholder
+
+    # 3. Перебор всех видимых текстовых полей на странице
     try:
-        placeholders = ["birth", "date", "дд/мм/гггг", "mm/dd/yyyy", "MM/DD/YYYY"]
-        for ph in placeholders:
-            field = find_field_by_placeholder(sb, ph, 2)
-            if field:
+        all_inputs = sb.find_elements("input:not([type='hidden']):not([type='submit'])")
+        for field in all_inputs:
+            placeholder = field.get_attribute("placeholder") or ""
+            name = field.get_attribute("name") or ""
+            id_attr = field.get_attribute("id") or ""
+            
+            if any(keyword in (placeholder.lower() + name.lower() + id_attr.lower()) 
+                   for keyword in ['birth', 'date', 'mm', 'dd', 'yyyy', 'дата']):
                 field.click()
                 time.sleep(0.2)
-                try:
-                    field.clear()
-                except:
-                    pass
-                clean_date = birth_date.replace('/', '')
-                human_type(field, clean_date)
-                print(f"[✓] Дата заполнена через placeholder: {ph}")
+                field.send_keys(birth_date.replace('/', ''))
+                print("[✓] Дата заполнена через перебор всех input")
                 return True
     except:
         pass
-    
-    # Способ 5 (Резервный): Ищем по имени поля 'birthday' или id
-    try:
-        field = sb.find_element("input[name*='birth'], input[id*='birth']", timeout=2)
-        if field:
-            field.click()
-            time.sleep(0.2)
-            clean_date = birth_date.replace('/', '')
-            human_type(field, clean_date)
-            print("[✓] Дата заполнена через резервный поиск")
-            return True
-    except:
-        pass
-    
+
     print("[!] Поле даты не найдено")
     return False
 
@@ -374,7 +314,7 @@ def load_emails():
 def main():
     print("=" * 60)
     print("ChatGPT Registration Bot")
-    print("Улучшенное заполнение даты (5 способов)")
+    print("Умный поиск поля даты (3 способа)")
     print("=" * 60)
     
     emails = load_emails()
