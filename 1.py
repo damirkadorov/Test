@@ -3,7 +3,7 @@
 
 """
 ChatGPT Registration Bot
-Полная автоматическая регистрация ChatGPT
+Правильный порядок: Email → Пароль → Код → Имя/Дата
 """
 
 import time
@@ -90,12 +90,12 @@ def register_chatgpt(email, email_password):
     
     with SB(uc=True, headless=False) as sb:
         
-        # 1. Открытие ChatGPT
+        # ========== 1. Открытие ChatGPT ==========
         print("\n[1] Открытие ChatGPT...")
         sb.uc_open_with_reconnect("https://chatgpt.com", 20)
         time.sleep(DELAY_STEP)
         
-        # 2. Нажатие Sign up
+        # ========== 2. Нажатие Sign up ==========
         print("\n[2] Нажатие Sign up...")
         try:
             sb.click("button[data-testid='signup-button']", timeout=10)
@@ -103,56 +103,30 @@ def register_chatgpt(email, email_password):
             sb.click("//button[contains(text(), 'Sign up')]", timeout=10)
         time.sleep(DELAY_STEP)
         
-        # 3. Ввод email
+        # ========== 3. Ввод email ==========
         print("\n[3] Ввод email...")
         email_field = sb.find_element("input[name='email']")
         human_type(email_field, email)
         time.sleep(DELAY_STEP)
         
-        # 4. Continue
+        # ========== 4. Continue ==========
         print("\n[4] Continue...")
         sb.click("button[type='submit']")
         time.sleep(DELAY_STEP)
         
-        # 5. Ввод имени (если есть)
-        print("\n[5] Проверка поля имени...")
-        try:
-            name_field = sb.find_element("input[name='first_name']", timeout=3)
-            if name_field and name_field.is_displayed():
-                human_type(name_field, "John Smith")
-                print("[✓] Имя введено")
-                time.sleep(DELAY_STEP)
-                sb.click("button[type='submit']")
-                time.sleep(DELAY_STEP)
-        except:
-            pass
-        
-        # 6. Ввод даты рождения (если есть)
-        print("\n[6] Проверка поля даты...")
-        try:
-            date_field = sb.find_element("input[type='date']", timeout=3)
-            if date_field and date_field.is_displayed():
-                human_type(date_field, "2000-01-01")
-                print("[✓] Дата введена")
-                time.sleep(DELAY_STEP)
-                sb.click("button[type='submit']")
-                time.sleep(DELAY_STEP)
-        except:
-            pass
-        
-        # 7. Ввод пароля
-        print("\n[7] Ввод пароля...")
+        # ========== 5. Ввод пароля ==========
+        print("\n[5] Ввод пароля...")
         password_field = sb.find_element("input[name='password']")
         human_type(password_field, chatgpt_password)
         time.sleep(DELAY_STEP)
         
-        # 8. Continue
-        print("\n[8] Continue...")
+        # ========== 6. Continue ==========
+        print("\n[6] Continue...")
         sb.click("button[type='submit']")
         time.sleep(DELAY_STEP)
         
-        # 9. Ожидание поля для кода
-        print("\n[9] Ожидание кода...")
+        # ========== 7. Ожидание поля для кода ==========
+        print("\n[7] Ожидание кода...")
         try:
             sb.wait_for_element_visible("input[name='code']", timeout=30)
             print("[✓] Поле кода появилось")
@@ -160,24 +134,62 @@ def register_chatgpt(email, email_password):
             print("[-] Поле кода не появилось")
             return False
         
-        # 10. Получение кода из почты
-        print("\n[10] Получение кода...")
+        # ========== 8. Получение кода из почты ==========
+        print("\n[8] Получение кода...")
         code = get_verification_code(email, email_password, timeout=120)
         if not code:
             return False
         
-        # 11. Ввод кода
-        print(f"\n[11] Ввод кода: {code}")
+        # ========== 9. Ввод кода ==========
+        print(f"\n[9] Ввод кода: {code}")
         code_field = sb.find_element("input[name='code']")
         human_type(code_field, code)
         time.sleep(DELAY_STEP)
         
-        # 12. Continue
-        print("\n[12] Continue...")
+        # ========== 10. Continue ==========
+        print("\n[10] Continue...")
         sb.click("button[type='submit']")
         time.sleep(DELAY_STEP)
         
-        # Сохранение
+        # ========== 11. Ввод имени (если появится) ==========
+        print("\n[11] Проверка поля имени...")
+        try:
+            name_field = sb.find_element("input[name='first_name']", timeout=5)
+            if name_field and name_field.is_displayed():
+                human_type(name_field, "John Smith")
+                print("[✓] Имя введено: John Smith")
+                time.sleep(DELAY_STEP)
+                
+                # Нажимаем Continue если есть
+                try:
+                    sb.click("button[type='submit']")
+                    print("[✓] Continue после имени")
+                    time.sleep(DELAY_STEP)
+                except:
+                    pass
+        except:
+            print("[!] Поле имени не найдено")
+        
+        # ========== 12. Ввод даты рождения (если появится) ==========
+        print("\n[12] Проверка поля даты...")
+        try:
+            date_field = sb.find_element("input[type='date']", timeout=5)
+            if date_field and date_field.is_displayed():
+                human_type(date_field, "2000-01-01")
+                print("[✓] Дата введена: 2000-01-01")
+                time.sleep(DELAY_STEP)
+                
+                # Нажимаем Continue если есть
+                try:
+                    sb.click("button[type='submit']")
+                    print("[✓] Continue после даты")
+                    time.sleep(DELAY_STEP)
+                except:
+                    pass
+        except:
+            print("[!] Поле даты не найдено")
+        
+        # ========== СОХРАНЕНИЕ ==========
         with open(OUTPUT_FILE, 'a', encoding='utf-8') as f:
             f.write(f"{email}:{chatgpt_password}\n")
         
@@ -202,7 +214,7 @@ def main():
     print("=" * 60)
     print("ChatGPT Registration Bot")
     print(f"Пароль: {FIXED_PASSWORD}")
-    print(f"IMAP: {FIRSTMAIL_IMAP}:{FIRSTMAIL_IMAP_PORT}")
+    print("Порядок: Email → Пароль → Код → Имя/Дата")
     print("=" * 60)
     
     emails = load_emails()
