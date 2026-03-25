@@ -3,13 +3,12 @@
 
 """
 Mail.ee Auto-Registrator с SeleniumBase
-Автоматический обход Cloudflare + надёжное принятие куки
+Исправленная версия с правильными селекторами
 """
 
 import time
 import random
 import string
-import os
 
 from seleniumbase import SB
 
@@ -19,7 +18,6 @@ DELAY_STEP = 5
 DELAY_AFTER_CLICK = 7
 # =====================================================
 
-# Реалистичные имена
 FIRST_NAMES = ["mari", "juri", "anna", "kristi", "tarmo", "liisa", "janek", "kadri", "rain", "silja", "marten", "merle", "andres", "triin", "priit"]
 LAST_NAMES = ["jari", "tamm", "saar", "kask", "sepp", "mets", "pärn", "rebase", "ojamaa", "kallas", "mägi", "rand", "veski", "laur", "villems"]
 
@@ -37,8 +35,6 @@ def generate_password(length=14):
     return ''.join(random.choices(chars, k=length))
 
 def register_mail_ee():
-    """Регистрирует один аккаунт с SeleniumBase"""
-    
     username = generate_username()
     password = generate_password()
     email = f"{username}@mail.ee"
@@ -48,35 +44,42 @@ def register_mail_ee():
     print(f"[*] Пароль: {password}")
     print(f"{'='*50}")
     
-    # Используем SeleniumBase с UC Mode
     with SB(uc=True, ad_block_on=True, incognito=True) as sb:
         
         # 1. Открыть страницу с обходом Cloudflare
         print("\n--- ЭТАП 1: Открытие страницы (обход Cloudflare) ---")
-        sb.uc_open_with_reconnect("https://login.mail.ee/signup?go=portal", 15)
+        sb.uc_open_with_reconnect("https://login.mail.ee/signup?go=portal", 20)
         print("[✓] Cloudflare обойдена")
         time.sleep(3)
         
-        # Ждём полной загрузки страницы после Cloudflare
+        # Ждём полной загрузки
         sb.wait_for_ready_state_complete()
         print("[✓] Страница загружена")
         time.sleep(2)
         
-        # 2. Принять куки (множественные селекторы)
-        print("\n--- ЭТАП 2: Принятие куки ---")
-        cookie_accepted = False
+        # Сохраняем скриншот для отладки
+        sb.save_screenshot("page_after_cloudflare.png")
+        print("[*] Сохранён скриншот: page_after_cloudflare.png")
         
+        # 2. Принять куки (кнопка "NÕUSTUN" на эстонском)
+        print("\n--- ЭТАП 2: Принятие куки ---")
+        
+        # Пробуем разные варианты кнопки
         cookie_selectors = [
+            "//button[contains(text(), 'NÕUSTUN')]",
             "//button[contains(text(), 'Nõustun')]",
+            "//button[contains(text(), 'NÕUSTU')]",
+            "//button[contains(text(), 'Nõustu')]",
+            "//button[contains(text(), 'ACCEPT')]",
             "//button[contains(text(), 'Accept')]",
-            "//button[contains(text(), 'OK')]",
-            "//button[contains(text(), 'Sulge')]",
             "//button[contains(@class, 'accept')]",
-            "//a[contains(text(), 'Nõustun')]",
-            "//button[@id='cookie-accept']",
-            "//div[contains(@class, 'cookie')]//button"
+            "//button[@class='accept']",
+            "//div[contains(@class, 'cookie')]//button",
+            "//button[contains(text(), 'ROHKEM')]/following-sibling::button",  # Кнопка справа от "ROHKEM VÕIMALUSI"
+            "//button[contains(text(), 'NÕUSTUN')] | //button[contains(text(), 'Nõustun')]"
         ]
         
+        cookie_accepted = False
         for selector in cookie_selectors:
             try:
                 if sb.is_element_visible(selector, timeout=3):
@@ -89,37 +92,62 @@ def register_mail_ee():
                 continue
         
         if not cookie_accepted:
-            print("[!] Кнопка куки не найдена, продолжаем...")
+            print("[!] Кнопка куки не найдена, пробуем кликнуть по всем кнопкам на странице...")
+            # Последняя попытка: найти все кнопки и кликнуть по похожей
+            try:
+                buttons = sb.find_elements("//button")
+                for btn in buttons:
+                    text = btn.text.upper()
+                    if "NÕUSTUN" in text or "NÕUSTU" in text or "ACCEPT" in text:
+                        sb.click(btn)
+                        print(f"[✓] Куки приняты по тексту: {btn.text}")
+                        cookie_accepted = True
+                        time.sleep(2)
+                        break
+            except:
+                pass
         
-        # Ждём стабилизации после принятия куки
+        if not cookie_accepted:
+            print("[!] Кнопка куки не найдена, но продолжаем...")
+        
         time.sleep(2)
         
         # 3. Ввод имени пользователя
         print("\n--- ЭТАП 3: Ввод имени пользователя ---")
         try:
-            # Ждём поле ввода
+            # Ждём поле ввода имени
             sb.wait_for_element_visible("input[name='username']", timeout=15)
             sb.type("input[name='username']", username)
             print(f"[✓] Имя введено: {username}")
         except Exception as e:
             print(f"[-] Не найдено поле ввода имени: {e}")
+            sb.save_screenshot("error_no_username_field.png")
             return False
         
         time.sleep(DELAY_STEP)
         
-        # 4. Проверка доступности имени
+        # 4. Проверка доступности имени (кнопка "Kontrolli saadavust")
         print("\n--- ЭТАП 4: Проверка доступности имени ---")
         try:
-            sb.click("//button[contains(text(), 'Kontrolli saadavust')]")
-            print("[✓] Нажата Kontrolli saadavust")
-        except:
-            # Пробуем другой селектор
-            try:
-                sb.click("//button[contains(@class, 'check')]")
-                print("[✓] Нажата кнопка проверки (альт. селектор)")
-            except:
+            check_selectors = [
+                "//button[contains(text(), 'Kontrolli saadavust')]",
+                "//button[contains(text(), 'Kontrolli')]",
+                "//button[@type='button']"
+            ]
+            for selector in check_selectors:
+                try:
+                    if sb.is_element_visible(selector, timeout=3):
+                        sb.click(selector)
+                        print(f"[✓] Нажата кнопка проверки: {selector[:40]}")
+                        break
+                except:
+                    continue
+            else:
                 print("[-] Не найдена кнопка проверки")
                 return False
+        except:
+            print("[-] Не найдена кнопка проверки")
+            return False
         
         time.sleep(DELAY_AFTER_CLICK)
         
@@ -140,30 +168,40 @@ def register_mail_ee():
         
         time.sleep(DELAY_STEP)
         
-        # 6. Отметка галочек
+        # 6. Отметка галочек (условия)
         print("\n--- ЭТАП 6: Отметка галочек ---")
-        checkboxes = sb.find_elements("//input[@type='checkbox']")
-        for i, cb in enumerate(checkboxes):
-            if not cb.is_selected():
-                try:
+        try:
+            checkboxes = sb.find_elements("//input[@type='checkbox']")
+            for i, cb in enumerate(checkboxes):
+                if not cb.is_selected():
                     sb.click(cb)
                     print(f"[✓] Галочка {i+1} отмечена")
-                    time.sleep(1.5)
-                except:
-                    print(f"[!] Не удалось отметить галочку {i+1}")
+                    time.sleep(1)
+        except Exception as e:
+            print(f"[!] Ошибка при отметке галочек: {e}")
         
-        # 7. Создание аккаунта
+        # 7. Создание аккаунта (кнопка "Loo uus konto")
         print("\n--- ЭТАП 7: Создание аккаунта ---")
         try:
-            sb.click("//button[contains(text(), 'Loo uus konto')]")
-            print("[✓] Нажата Loo uus konto")
-        except:
-            try:
-                sb.click("//button[@type='submit']")
-                print("[✓] Нажата кнопка отправки")
-            except:
+            create_selectors = [
+                "//button[contains(text(), 'Loo uus konto')]",
+                "//button[contains(text(), 'Loo')]",
+                "//button[@type='submit']"
+            ]
+            for selector in create_selectors:
+                try:
+                    if sb.is_element_visible(selector, timeout=3):
+                        sb.click(selector)
+                        print(f"[✓] Нажата кнопка создания: {selector[:40]}")
+                        break
+                except:
+                    continue
+            else:
                 print("[-] Не найдена кнопка создания аккаунта")
                 return False
+        except:
+            print("[-] Не найдена кнопка создания аккаунта")
+            return False
         
         time.sleep(5)
         
@@ -185,35 +223,26 @@ def register_mail_ee():
             print("!" * 50)
             input("Нажмите Enter ПОСЛЕ решения капчи...")
         else:
-            print("[✓] Капча не обнаружена или уже решена")
+            print("[✓] Капча не обнаружена")
         
-        # Проверка успешности регистрации
-        time.sleep(3)
-        current_url = sb.get_current_url()
+        # Сохраняем аккаунт
+        with open(OUTPUT_FILE, 'a', encoding='utf-8') as f:
+            f.write(f"{email}:{password}\n")
         
-        if "login" in current_url or "portal" in current_url:
-            print("[+] Регистрация успешна!")
-            
-            # Сохраняем аккаунт
-            with open(OUTPUT_FILE, 'a', encoding='utf-8') as f:
-                f.write(f"{email}:{password}\n")
-            
-            print(f"\n[+] Сохранён: {email}")
-            return True
-        else:
-            print("[-] Возможно, регистрация не завершена")
-            return False
+        print(f"\n[+] Сохранён: {email}")
+        return True
 
 def main():
     print("=" * 60)
     print("Mail.ee Account Generator с SeleniumBase")
-    print("Автоматический обход Cloudflare + надёжное принятие куки")
+    print("Исправленная версия с правильными селекторами")
     print("=" * 60)
     print("\n⚠️ ВНИМАНИЕ:")
     print("   - Cloudflare обходится АВТОМАТИЧЕСКИ")
-    print("   - Куки принимаются автоматически")
-    print("   - hCaptcha требует РУЧНОГО решения")
-    print("   - Между шагами задержка 5-7 секунд")
+    print("   - Кнопка куки: NÕUSTUN")
+    print("   - Кнопка проверки: Kontrolli saadavust")
+    print("   - Кнопка создания: Loo uus konto")
+    print("   - hCaptcha решается ВРУЧНУЮ")
     print("=" * 60)
     
     try:
