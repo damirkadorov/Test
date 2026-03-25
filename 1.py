@@ -3,7 +3,7 @@
 
 """
 ChatGPT Auto-Registrator
-Фиксированный пароль + JavaScript ввод
+Правильный селектор поля пароля: input[name='password']
 """
 
 import time
@@ -125,47 +125,44 @@ def register_chatgpt(email, email_password):
         time.sleep(DELAY_STEP)
         
         # ========== ЭТАП 8: Ожидание поля пароля ==========
-        print("\n--- ЭТАП 8: Ожидание поля пароля ---")
+        print("\n--- ЭТАП 8: Ожидание поля пароля (15 сек) ---")
         
         # Ждём появление поля пароля
         try:
             sb.wait_for_element_visible("input[name='password']", timeout=15)
             print("[✓] Поле пароля появилось")
         except:
+            print("[-] Поле пароля не появилось")
+            return False
+        
+        # ========== ЭТАП 9: Ввод пароля ==========
+        print(f"\n--- ЭТАП 9: Ввод пароля {chatgpt_password} (5 сек) ---")
+        
+        # Пробуем ввести через send_keys
+        try:
+            sb.type("input[name='password']", chatgpt_password, timeout=10)
+            print("[✓] Пароль введён через send_keys")
+        except:
+            # Если не работает, пробуем JavaScript
             try:
-                sb.wait_for_element_visible("input[type='password']", timeout=10)
-                print("[✓] Поле пароля появилось (type=password)")
-            except:
-                print("[-] Поле пароля не появилось")
-                return False
-        
-        # ========== ЭТАП 9: Ввод пароля через JavaScript ==========
-        print("\n--- ЭТАП 9: Ввод пароля через JavaScript (5 сек) ---")
-        
-        # Способ 1: JavaScript
-        js_set_value = """
-        var inputs = document.querySelectorAll('input[type="password"], input[name="password"]');
-        if (inputs.length > 0) {
-            inputs[0].value = arguments[0];
-            inputs[0].dispatchEvent(new Event('input', { bubbles: true }));
-            inputs[0].dispatchEvent(new Event('change', { bubbles: true }));
-            return true;
-        }
-        return false;
-        """
-        
-        result = sb.execute_script(js_set_value, chatgpt_password)
-        if result:
-            print(f"[✓] Пароль введён через JavaScript: {chatgpt_password}")
-        else:
-            # Способ 2: обычный send_keys
-            try:
-                password_field = sb.find_element("input[name='password']")
-                password_field.clear()
-                password_field.send_keys(chatgpt_password)
-                print(f"[✓] Пароль введён через send_keys: {chatgpt_password}")
-            except:
-                print("[-] Не удалось ввести пароль")
+                js_set = """
+                var field = document.querySelector('input[name="password"]');
+                if (field) {
+                    field.value = arguments[0];
+                    field.dispatchEvent(new Event('input', { bubbles: true }));
+                    field.dispatchEvent(new Event('change', { bubbles: true }));
+                    return true;
+                }
+                return false;
+                """
+                result = sb.execute_script(js_set, chatgpt_password)
+                if result:
+                    print("[✓] Пароль введён через JavaScript")
+                else:
+                    print("[-] Не удалось ввести пароль")
+                    return False
+            except Exception as e:
+                print(f"[-] Ошибка ввода пароля: {e}")
                 return False
         
         time.sleep(DELAY_STEP)
@@ -201,7 +198,7 @@ def main():
     print("=" * 60)
     print("ChatGPT Auto-Registrator")
     print(f"Фиксированный пароль: {FIXED_PASSWORD}")
-    print("Ввод пароля через JavaScript")
+    print("Селектор: input[name='password']")
     print("=" * 60)
     
     emails = load_emails()
