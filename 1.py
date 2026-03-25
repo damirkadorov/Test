@@ -3,7 +3,7 @@
 
 """
 Mail.ee Auto-Registrator
-Правильный порядок: имя → hCaptcha → проверка имени
+Финальная версия с правильными ID элементов
 """
 
 import time
@@ -62,36 +62,52 @@ def register():
         print(f"[✓] Имя: {username}")
         time.sleep(2)
         
-        # 4. hCaptcha (на этом этапе появляется капча!)
+        # 4. hCaptcha (после ввода имени)
         print("\n" + "!" * 50)
         print("🔐 РЕШИТЕ hCaptcha ВРУЧНУЮ (капча после ввода имени)")
         print("!" * 50)
         input("Нажмите Enter ПОСЛЕ решения капчи...")
         
-        # 5. Проверка имени (Kontrolli saadavust) - только после капчи!
+        # 5. Проверка имени (Kontrolli saadavust)
         print("[4] Проверка доступности имени...")
         sb.click("#check-uname")
         time.sleep(3)
         
-        # 6. Ввод пароля
+        # 6. Ввод пароля (id="signup_password")
         print("[5] Ввод пароля...")
-        sb.type("input[name='password']", password)
+        sb.wait_for_element_visible("#signup_password", timeout=10)
+        sb.type("#signup_password", password)
         print("[✓] Пароль введён")
         time.sleep(2)
         
-        # 7. Отметка галочек
+        # 7. Галочка 1: Privaatsuspoliitika (id="signup_privacy")
         print("[6] Отметка галочек...")
-        for cb in sb.find_elements("//input[@type='checkbox']"):
-            if not cb.is_selected():
-                cb.click()
-                time.sleep(1)
+        try:
+            sb.click("#signup_privacy", timeout=5)
+            print("[✓] Принята Privaatsuspoliitika")
+        except:
+            print("[!] Галочка Privaatsuspoliitika не найдена")
+        time.sleep(1)
         
-        # 8. Создание аккаунта
+        # 8. Галочка 2: Teenuse tingimused (ищем по тексту или по class)
+        try:
+            # Ищем вторую галочку (она обычно без id)
+            checkboxes = sb.find_elements("//input[@type='checkbox']")
+            for cb in checkboxes:
+                if not cb.is_selected() and cb.get_attribute("id") != "signup_privacy":
+                    sb.execute_script("arguments[0].click();", cb)
+                    print("[✓] Приняты Teenuse tingimused")
+                    break
+        except Exception as e:
+            print(f"[!] Ошибка при отметке второй галочки: {e}")
+        time.sleep(1)
+        
+        # 9. Создание аккаунта (кнопка "Loo uus konto")
         print("[7] Создание аккаунта...")
         sb.click("//button[contains(text(), 'Loo uus konto')]")
         time.sleep(3)
         
-        # 9. Сохранение
+        # 10. Сохранение
         with open(OUTPUT_FILE, 'a', encoding='utf-8') as f:
             f.write(f"{email}:{password}\n")
         
@@ -101,7 +117,7 @@ def register():
 def main():
     print("=" * 60)
     print("Mail.ee Account Generator")
-    print("Правильный порядок: имя → hCaptcha → проверка имени")
+    print("Финальная версия с правильными ID")
     print("=" * 60)
     
     if "DISPLAY" not in os.environ:
@@ -113,8 +129,10 @@ def main():
     print("   3. Вводится имя (kasutajanimi)")
     print("   4. 🔐 ВЫ РЕШАЕТЕ hCaptcha ВРУЧНУЮ")
     print("   5. Автоматически нажимается проверка имени")
-    print("   6. Вводится пароль, галочки, создание")
-    print("   7. Аккаунт сохраняется")
+    print("   6. Вводится пароль (id=signup_password)")
+    print("   7. Автоматически отмечаются две галочки")
+    print("   8. Автоматически нажимается Loo uus konto")
+    print("   9. Аккаунт сохраняется")
     print("=" * 60)
     
     try:
