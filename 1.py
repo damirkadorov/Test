@@ -3,7 +3,7 @@
 
 """
 ChatGPT Auto-Registrator
-Правильные селекторы из ваших скриншотов
+Усиленный поиск поля пароля (с запасными вариантами)
 """
 
 import time
@@ -130,30 +130,45 @@ def register_chatgpt(email, email_password):
         # ========== ЭТАП 8: Ожидание поля пароля ==========
         print("\n--- ЭТАП 8: Ожидание поля пароля ---")
         
-        # Поле пароля (по селекторам из вашего скриншота)
-        password_found = False
+        # Сохраняем скриншот для отладки
+        sb.save_screenshot("after_code.png")
+        print("[*] Сохранён скриншот: after_code.png")
+        
+        # Поле пароля - пробуем разные варианты
         password_selectors = [
             "input[name='password']",
+            "input[type='password']",
+            "input[id*='password']",
             "input[id*='new-password']",
-            "input[type='password']"
+            "//input[@type='password']"
         ]
         
+        password_field = None
         for selector in password_selectors:
             try:
-                sb.wait_for_element_visible(selector, timeout=15)
-                print(f"[✓] Поле пароля найдено: {selector}")
-                password_found = True
-                break
+                if selector.startswith("//"):
+                    password_field = sb.find_element(selector, timeout=5)
+                else:
+                    password_field = sb.find_element(selector, timeout=5)
+                if password_field and password_field.is_displayed():
+                    print(f"[✓] Поле пароля найдено: {selector}")
+                    break
             except:
                 continue
         
-        if not password_found:
+        if not password_field:
             print("[-] Поле пароля не найдено")
+            print("[*] Выводим HTML страницы для отладки...")
+            with open("page_debug.html", "w") as f:
+                f.write(sb.get_page_source())
+            print("[*] Сохранён файл: page_debug.html")
             return False
         
         # ========== ЭТАП 9: Ввод пароля ==========
         print("\n--- ЭТАП 9: Ввод пароля (5 сек) ---")
-        sb.type("input[name='password']", chatgpt_password)
+        password_field.clear()
+        password_field.send_keys(chatgpt_password)
+        print("[✓] Пароль введён")
         time.sleep(DELAY_STEP)
         
         # ========== ЭТАП 10: Нажатие Continue ==========
@@ -186,7 +201,7 @@ def load_emails():
 def main():
     print("=" * 60)
     print("ChatGPT Auto-Registrator")
-    print("Правильные селекторы: input[name='password']")
+    print("Усиленный поиск поля пароля")
     print("=" * 60)
     
     emails = load_emails()
