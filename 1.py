@@ -2,289 +2,172 @@
 # -*- coding: utf-8 -*-
 
 """
-Mail.tm Account Generator
-Создание почтовых ящиков с паролем для API доступа
-Сохранение в файл email:пароль
+Tuta (Tutanota) Account Generator
+Регистрация без SMS, но с 48-часовой задержкой активации
 """
 
-import requests
-import json
+import time
 import random
 import string
-import time
-import os
+import requests
+import json
 import sys
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait, Select
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.chrome.service import Service
+from selenium.webdriver.chrome.options import Options
 
 # ===================== НАСТРОЙКИ =====================
-OUTPUT_FILE = "mailtm_accounts.txt"
-API_BASE = "https://api.mail.tm"
-DOMAINS = ["mail.tm", "slmails.com", "czmail.com"]  # Доступные домены Mail.tm
-DEFAULT_COUNT = 5
-DELAY_BETWEEN = 2  # Секунд между созданием аккаунтов
+OUTPUT_FILE = "tuta_accounts.txt"
+TUTA_DOMAINS = ["tuta.com", "tutanota.com", "tutamail.com", "tuta.io", "keemail.me"]
+DELAY_BETWEEN = 10
 # =====================================================
 
-def generate_username(length=10):
+def generate_username(length=12):
     """Генерирует случайное имя пользователя"""
     chars = string.ascii_lowercase + string.digits
     return ''.join(random.choices(chars, k=length))
 
-def generate_password(length=12):
-    """Генерирует случайный пароль"""
-    chars = string.ascii_letters + string.digits
+def generate_password(length=14):
+    """Генерирует надёжный пароль"""
+    chars = string.ascii_letters + string.digits + "!@#$%^&*"
     return ''.join(random.choices(chars, k=length))
 
-def get_domains():
-    """Получает список доступных доменов Mail.tm"""
-    try:
-        response = requests.get(f"{API_BASE}/domains")
-        if response.status_code == 200:
-            domains = [d['domain'] for d in response.json()]
-            return domains
-    except:
-        pass
-    return DOMAINS
+def generate_recovery_code():
+    """Генерирует recovery-код Tuta (сохранить обязательно!)"""
+    chars = string.ascii_uppercase + string.digits
+    return ''.join(random.choices(chars, k=16))
 
-def create_account(domain=None, username=None, password=None):
-    """
-    Создаёт аккаунт на Mail.tm
-    Возвращает словарь с email, password, token или None
-    """
-    if not domain:
-        domains = get_domains()
-        domain = random.choice(domains)
+def register_tuta_account():
+    """Регистрирует аккаунт Tuta через Selenium"""
     
-    if not username:
-        username = generate_username()
-    
-    if not password:
-        password = generate_password()
-    
+    domain = random.choice(TUTA_DOMAINS)
+    username = generate_username()
     email = f"{username}@{domain}"
+    password = generate_password()
+    recovery_code = generate_recovery_code()
     
-    print(f"[*] Создаю: {email}")
+    print(f"[*] Регистрация: {email}")
     
-    # Регистрация
-    response = requests.post(
-        f"{API_BASE}/accounts",
-        json={
-            "address": email,
-            "password": password
-        }
-    )
+    options = Options()
+    options.add_argument("--window-size=1280,720")
+    options.add_argument("--disable-blink-features=AutomationControlled")
+    options.add_experimental_option("excludeSwitches", ["enable-automation"])
     
-    if response.status_code == 201:
-        account_data = response.json()
-        
-        # Получаем токен для доступа к API
-        token_response = requests.post(
-            f"{API_BASE}/token",
-            json={
-                "address": email,
-                "password": password
-            }
-        )
-        
-        token = None
-        if token_response.status_code == 200:
-            token = token_response.json().get("token")
-        
-        account = {
-            "email": account_data['address'],
-            "password": password,
-            "id": account_data.get('id'),
-            "token": token
-        }
-        
-        print(f"[+] Создан: {account['email']}")
-        print(f"[+] Пароль: {password}")
-        
-        return account
+    # Путь к chromedriver
+    from webdriver_manager.chrome import ChromeDriverManager
+    service = Service(ChromeDriverManager().install())
+    driver = webdriver.Chrome(service=service, options=options)
     
-    elif response.status_code == 422:
-        print(f"[-] Ошибка: email уже существует, пробуем другой...")
-        return create_account(domain, generate_username(), password)
-    else:
-        print(f"[-] Ошибка: {response.status_code} - {response.text}")
-        return None
-
-def save_account(account, filename=OUTPUT_FILE):
-    """Сохраняет аккаунт в файл (формат email:password)"""
-    with open(filename, 'a', encoding='utf-8') as f:
-        f.write(f"{account['email']}:{account['password']}\n")
-    
-    # Также сохраняем JSON с токеном (опционально)
-    json_file = filename.replace('.txt', '.json')
     try:
-        with open(json_file, 'r', encoding='utf-8') as f:
-            accounts = json.load(f)
-    except:
-        accounts = []
-    
-    accounts.append({
-        "email": account['email'],
-        "password": account['password'],
-        "id": account.get('id'),
-        "token": account.get('token'),
-        "created": time.strftime("%Y-%m-%d %H:%M:%S")
-    })
-    
-    with open(json_file, 'w', encoding='utf-8') as f:
-        json.dump(accounts, f, indent=2, ensure_ascii=False)
-
-def get_messages(token, limit=10):
-    """Получает список писем для аккаунта"""
-    response = requests.get(
-        f"{API_BASE}/messages",
-        headers={"Authorization": f"Bearer {token}"},
-        params={"page": 1, "limit": limit}
-    )
-    
-    if response.status_code == 200:
-        return response.json()
-    return []
-
-def get_message_body(token, message_id):
-    """Получает тело письма"""
-    response = requests.get(
-        f"{API_BASE}/messages/{message_id}",
-        headers={"Authorization": f"Bearer {token}"}
-    )
-    
-    if response.status_code == 200:
-        return response.json()
-    return None
-
-def wait_for_code(token, sender_domain=None, timeout=60):
-    """Ожидает письмо с кодом подтверждения (6 цифр)"""
-    import re
-    
-    print(f"[*] Ожидание письма (макс {timeout} сек)...")
-    start_time = time.time()
-    
-    while time.time() - start_time < timeout:
-        messages = get_messages(token)
+        driver.get("https://app.tuta.com")
+        time.sleep(3)
         
-        if messages:
-            for msg in messages:
-                from_addr = msg.get('from', {}).get('address', '')
-                
-                if sender_domain and sender_domain not in from_addr:
-                    continue
-                
-                msg_data = get_message_body(token, msg['id'])
-                if msg_data:
-                    body = msg_data.get('text', '')
-                    match = re.search(r'\b(\d{6})\b', body)
-                    if match:
-                        code = match.group(1)
-                        print(f"[+] Найден код: {code}")
-                        return code
+        wait = WebDriverWait(driver, 20)
+        
+        # Нажать "Sign up"
+        signup_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Sign up')]")))
+        signup_btn.click()
+        time.sleep(2)
+        
+        # Выбрать бесплатный тариф
+        free_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Free')]")))
+        free_btn.click()
+        time.sleep(2)
+        
+        # Ввести email
+        email_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']")))
+        email_field.clear()
+        email_field.send_keys(email)
+        time.sleep(1)
+        
+        # Выбрать домен (если нужно)
+        try:
+            domain_select = Select(driver.find_element(By.CSS_SELECTOR, "select"))
+            domain_select.select_by_visible_text(domain)
+        except:
+            pass
+        
+        # Ввести пароль
+        password_field = driver.find_element(By.CSS_SELECTOR, "input[type='password']")
+        password_field.clear()
+        password_field.send_keys(password)
+        time.sleep(1)
+        
+        # Подтверждение пароля
+        confirm_field = driver.find_element(By.XPATH, "//input[@type='password'][2]")
+        confirm_field.clear()
+        confirm_field.send_keys(password)
+        
+        # Нажать "Next"
+        next_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Next')]")))
+        next_btn.click()
+        time.sleep(3)
+        
+        # Сохранить recovery-код (Tuta показывает его после регистрации)
+        print(f"[!] ВАЖНО: Сохраните recovery-код: {recovery_code}")
+        
+        # Завершение регистрации
+        finish_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Finish')]")))
+        finish_btn.click()
         
         time.sleep(5)
-    
-    print("[-] Код не получен за отведённое время")
-    return None
+        
+        account = {
+            "email": email,
+            "password": password,
+            "recovery_code": recovery_code,
+            "domain": domain,
+            "status": "pending_activation",  # 48h задержка
+            "created": time.strftime("%Y-%m-%d %H:%M:%S")
+        }
+        
+        return account
+        
+    except Exception as e:
+        print(f"[-] Ошибка: {e}")
+        return None
+    finally:
+        driver.quit()
 
-def list_accounts(filename=OUTPUT_FILE):
-    """Показывает все сохранённые аккаунты"""
-    if not os.path.exists(filename):
-        print("Файл с аккаунтами не найден")
-        return []
+def save_account(account):
+    """Сохраняет аккаунт в файл"""
+    with open(OUTPUT_FILE, 'a', encoding='utf-8') as f:
+        f.write(f"{account['email']}:{account['password']}:{account['recovery_code']}\n")
+        f.write(f"# Статус: {account['status']} - создан {account['created']}\n")
     
-    with open(filename, 'r', encoding='utf-8') as f:
-        accounts = [line.strip() for line in f if line.strip()]
-    
-    print(f"\n📧 Сохранённые аккаунты ({len(accounts)}):")
-    for i, acc in enumerate(accounts, 1):
-        print(f"  {i}. {acc}")
-    
-    return accounts
-
-def delete_account(account_id, token):
-    """Удаляет аккаунт (если нужно)"""
-    response = requests.delete(
-        f"{API_BASE}/accounts/{account_id}",
-        headers={"Authorization": f"Bearer {token}"}
-    )
-    return response.status_code == 204
+    print(f"[+] Сохранён: {account['email']}")
+    print(f"[+] Recovery: {account['recovery_code']}")
 
 def main():
     print("=" * 60)
-    print("Mail.tm Account Generator")
+    print("Tuta (Tutanota) Account Generator")
+    print("ВНИМАНИЕ: После регистрации требуется 48 часов для активации!")
     print("=" * 60)
     
-    # Показываем существующие аккаунты
-    list_accounts()
-    
-    # Количество новых
     try:
-        count = int(input(f"\nСколько аккаунтов создать (по умолч. {DEFAULT_COUNT}): ") or DEFAULT_COUNT)
+        count = int(input("\nСколько аккаунтов создать: ") or 1)
     except:
-        count = DEFAULT_COUNT
+        count = 1
     
-    print(f"\n[*] Будет создано {count} аккаунтов")
-    print(f"[*] Задержка между созданием: {DELAY_BETWEEN} сек\n")
-    
-    created = 0
     for i in range(count):
-        print(f"--- {i+1}/{count} ---")
-        account = create_account()
-        
+        print(f"\n--- {i+1}/{count} ---")
+        account = register_tuta_account()
         if account:
             save_account(account)
-            created += 1
         else:
-            print("[-] Ошибка создания, пропускаем...")
+            print("[-] Ошибка регистрации")
         
         if i < count - 1:
             time.sleep(DELAY_BETWEEN)
     
     print("\n" + "=" * 60)
-    print(f"✅ Создано аккаунтов: {created}")
+    print("✅ Генерация завершена")
     print(f"📁 Файл: {OUTPUT_FILE}")
+    print("⚠️ Аккаунты активируются через 48 часов!")
     print("=" * 60)
 
-def console_mode():
-    """Режим командной строки"""
-    import argparse
-    
-    parser = argparse.ArgumentParser(description="Mail.tm Account Generator")
-    parser.add_argument("-c", "--count", type=int, default=DEFAULT_COUNT, help="Количество аккаунтов")
-    parser.add_argument("-o", "--output", default=OUTPUT_FILE, help="Файл для сохранения")
-    parser.add_argument("--list", action="store_true", help="Показать сохранённые аккаунты")
-    parser.add_argument("--domain", help="Использовать конкретный домен")
-    parser.add_argument("--delay", type=int, default=DELAY_BETWEEN, help="Задержка между созданием (сек)")
-    
-    args = parser.parse_args()
-    
-    global OUTPUT_FILE, DELAY_BETWEEN
-    OUTPUT_FILE = args.output
-    DELAY_BETWEEN = args.delay
-    
-    if args.list:
-        list_accounts(OUTPUT_FILE)
-        return
-    
-    print(f"[*] Создание {args.count} аккаунтов...")
-    
-    for i in range(args.count):
-        account = create_account(domain=args.domain)
-        if account:
-            save_account(account, args.output)
-        if i < args.count - 1:
-            time.sleep(DELAY_BETWEEN)
-    
-    print(f"\n✅ Сохранено в {args.output}")
-
 if __name__ == "__main__":
-    # Проверяем установку requests
-    try:
-        import requests
-    except ImportError:
-        print("Установите requests: pip install requests")
-        sys.exit(1)
-    
-    if len(sys.argv) > 1:
-        console_mode()
-    else:
-        main()
+    main()
