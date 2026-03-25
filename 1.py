@@ -3,7 +3,7 @@
 
 """
 Mail.ee Auto-Registrator с SeleniumBase
-Упрощённая версия
+Принудительное отображение браузера (headless2=False)
 """
 
 import time
@@ -35,34 +35,6 @@ def generate_password(length=14):
     chars = string.ascii_letters + string.digits + "!@#$%^&*"
     return ''.join(random.choices(chars, k=length))
 
-def click_cookie_button(sb, timeout=10):
-    """Клик по кнопке куки"""
-    start = time.time()
-    while time.time() - start < timeout:
-        try:
-            # Ищем кнопку "NÕUSTUN"
-            js_click = """
-            var buttons = document.querySelectorAll('button');
-            for(var i=0; i<buttons.length; i++) {
-                var text = buttons[i].innerText || buttons[i].textContent;
-                if(text && (text.includes('NÕUSTUN') || text.includes('Nõustun'))) {
-                    buttons[i].click();
-                    return true;
-                }
-            }
-            return false;
-            """
-            result = sb.execute_script(js_click)
-            if result:
-                print("[✓] Куки приняты")
-                return True
-        except:
-            pass
-        time.sleep(1)
-    
-    print("[!] Кнопка куки не найдена")
-    return False
-
 def register_mail_ee():
     username = generate_username()
     password = generate_password()
@@ -73,8 +45,8 @@ def register_mail_ee():
     print(f"[*] Пароль: {password}")
     print(f"{'='*50}")
     
-    # Упрощённые настройки SeleniumBase
-    with SB(uc=True, headless=False) as sb:
+    # КЛЮЧЕВОЕ: headless2=False - отключает headless режим
+    with SB(uc=True, headless2=False, incognito=True) as sb:
         
         # 1. Открыть страницу
         print("\n--- ЭТАП 1: Открытие страницы ---")
@@ -86,9 +58,18 @@ def register_mail_ee():
         sb.save_screenshot("page_after_load.png")
         print("[*] Скриншот: page_after_load.png")
         
-        # 2. Принять куки
+        # 2. Принять куки (кнопка "NÕUSTUN")
         print("\n--- ЭТАП 2: Принятие куки ---")
-        click_cookie_button(sb, timeout=10)
+        try:
+            # Пробуем найти кнопку по тексту
+            sb.click("NÕUSTUN", timeout=10)
+            print("[✓] Куки приняты")
+        except:
+            try:
+                sb.click("Nõustun", timeout=5)
+                print("[✓] Куки приняты")
+            except:
+                print("[!] Кнопка куки не найдена")
         time.sleep(3)
         
         # 3. Ввод имени пользователя
@@ -107,7 +88,7 @@ def register_mail_ee():
         # 4. Проверка доступности имени
         print("\n--- ЭТАП 4: Проверка доступности имени ---")
         try:
-            sb.click("//button[contains(text(), 'Kontrolli saadavust')]", timeout=5)
+            sb.click("Kontrolli saadavust", timeout=5)
             print("[✓] Нажата кнопка проверки")
         except:
             print("[-] Не найдена кнопка проверки")
@@ -148,7 +129,7 @@ def register_mail_ee():
         # 7. Создание аккаунта
         print("\n--- ЭТАП 7: Создание аккаунта ---")
         try:
-            sb.click("//button[contains(text(), 'Loo uus konto')]", timeout=5)
+            sb.click("Loo uus konto", timeout=5)
             print("[✓] Нажата кнопка создания аккаунта")
         except:
             print("[-] Не найдена кнопка создания аккаунта")
@@ -185,6 +166,7 @@ def register_mail_ee():
 def main():
     print("=" * 60)
     print("Mail.ee Account Generator с SeleniumBase")
+    print("Браузер ВИДИМ (headless2=False)")
     print("=" * 60)
     
     # Устанавливаем DISPLAY если нужно
