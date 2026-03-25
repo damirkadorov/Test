@@ -3,12 +3,13 @@
 
 """
 Mail.ee Auto-Registrator с SeleniumBase
-Исправленная версия с несколькими способами клика по кнопкам
+Принудительный клик по кнопке через JavaScript
 """
 
 import time
 import random
 import string
+import os
 
 from seleniumbase import SB
 
@@ -34,45 +35,53 @@ def generate_password(length=14):
     chars = string.ascii_letters + string.digits + "!@#$%^&*"
     return ''.join(random.choices(chars, k=length))
 
-def click_button_by_text(sb, text, timeout=5):
-    """Универсальная функция для клика по кнопке с текстом"""
+def force_click_button(sb, button_text, timeout=10):
+    """Принудительный клик по кнопке через JavaScript"""
     
-    # Способ 1: Прямой клик по тексту
-    try:
-        sb.click(text, timeout=timeout)
-        print(f"[✓] Клик по кнопке '{text}' (способ 1)")
-        return True
-    except:
-        pass
-    
-    # Способ 2: XPath с contains
-    try:
-        sb.click(f"//button[contains(text(), '{text}')]", timeout=timeout)
-        print(f"[✓] Клик по кнопке '{text}' (способ 2)")
-        return True
-    except:
-        pass
-    
-    # Способ 3: XPath с normalize-space (игнорирует пробелы)
-    try:
-        sb.click(f"//button[normalize-space()='{text}']", timeout=timeout)
-        print(f"[✓] Клик по кнопке '{text}' (способ 3)")
-        return True
-    except:
-        pass
-    
-    # Способ 4: Поиск по всем кнопкам
-    try:
-        buttons = sb.find_elements("//button")
-        for btn in buttons:
-            if text.upper() in btn.text.upper():
-                sb.execute_script("arguments[0].click();", btn)
-                print(f"[✓] Клик по кнопке '{text}' (способ 4: JavaScript)")
+    # Ждём появления кнопки
+    start = time.time()
+    while time.time() - start < timeout:
+        try:
+            # Пробуем найти кнопку с точным текстом
+            js_find = f"""
+            var buttons = document.querySelectorAll('button');
+            for(var i=0; i<buttons.length; i++) {{
+                if(buttons[i].innerText && buttons[i].innerText.trim() === '{button_text}') {{
+                    buttons[i].click();
+                    return true;
+                }}
+            }}
+            return false;
+            """
+            result = sb.execute_script(js_find)
+            if result:
+                print(f"[✓] JavaScript клик по кнопке '{button_text}'")
                 return True
-    except:
-        pass
+        except:
+            pass
+        
+        # Пробуем найти кнопку с текстом внутри
+        try:
+            js_find_contains = f"""
+            var buttons = document.querySelectorAll('button');
+            for(var i=0; i<buttons.length; i++) {{
+                if(buttons[i].innerText && buttons[i].innerText.toUpperCase().includes('{button_text.upper()}')) {{
+                    buttons[i].click();
+                    return true;
+                }}
+            }}
+            return false;
+            """
+            result = sb.execute_script(js_find_contains)
+            if result:
+                print(f"[✓] JavaScript клик по кнопке (содержит '{button_text}')")
+                return True
+        except:
+            pass
+        
+        time.sleep(1)
     
-    print(f"[!] Не удалось кликнуть по кнопке '{text}'")
+    print(f"[!] Кнопка '{button_text}' не найдена за {timeout} сек")
     return False
 
 def register_mail_ee():
@@ -85,38 +94,68 @@ def register_mail_ee():
     print(f"[*] Пароль: {password}")
     print(f"{'='*50}")
     
-    with SB(uc=True, ad_block_on=True, incognito=True) as sb:
+    with SB(uc=True, ad_block_on=True, incognito=True, headless=False) as sb:
         
-        # 1. Открыть страницу с обходом Cloudflare
-        print("\n--- ЭТАП 1: Открытие страницы (обход Cloudflare) ---")
-        sb.uc_open_with_reconnect("https://login.mail.ee/signup?go=portal", 20)
-        print("[✓] Cloudflare обойдена")
-        time.sleep(3)
+        # 1. Открыть страницу
+        print("\n--- ЭТАП 1: Открытие страницы ---")
+        sb.uc_open_with_reconnect("https://login.mail.ee/signup?go=portal", 30)
+        print("[✓] Страница открыта")
+        time.sleep(5)
         
-        sb.wait_for_ready_state_complete()
-        print("[✓] Страница загружена")
-        time.sleep(2)
+        # Сохраняем скриншот для отладки
+        sb.save_screenshot("page_after_load.png")
+        print("[*] Скриншот: page_after_load.png")
         
-        # Сохраняем скриншот
-        sb.save_screenshot("page_after_cloudflare.png")
-        print("[*] Сохранён скриншот: page_after_cloudflare.png")
+        # Выводим все кнопки на странице для отладки
+        print("\n--- Отладка: список кнопок на странице ---")
+        buttons = sb.find_elements("//button")
+        print(f"[*] Найдено кнопок: {len(buttons)}")
+        for i, btn in enumerate(buttons[:10]):  # Показываем первые 10
+            try:
+                text = btn.text
+                print(f"  {i+1}. '{text}'")
+            except:
+                print(f"  {i+1}. [недоступно]")
         
-        # 2. Принять куки (кнопка "NÕUSTUN")
+        # 2. Принять куки (принудительный клик)
         print("\n--- ЭТАП 2: Принятие куки ---")
         
-        # Пробуем кликнуть по кнопке
-        if click_button_by_text(sb, "NÕUSTUN", timeout=5):
-            time.sleep(2)
-        else:
-            # Если не нашли, пробуем другие варианты текста
-            for text in ["Nõustun", "ACCEPT", "Accept", "OK"]:
-                if click_button_by_text(sb, text, timeout=2):
-                    time.sleep(2)
-                    break
-            else:
-                print("[!] Кнопка куки не найдена, продолжаем...")
+        # Пробуем найти кнопку "NÕUSTUN"
+        cookie_clicked = False
         
-        # Ждём, пока форма загрузится
+        # Вариант 1: По точному тексту
+        for text in ["NÕUSTUN", "Nõustun", "NÕUSTU", "Nõustu"]:
+            if force_click_button(sb, text, timeout=3):
+                cookie_clicked = True
+                time.sleep(2)
+                break
+        
+        # Вариант 2: Поиск по всем кнопкам и клик по тексту
+        if not cookie_clicked:
+            print("[*] Пробуем найти кнопку по всем элементам...")
+            try:
+                js_find_any = """
+                var elements = document.querySelectorAll('button, a, div[role="button"]');
+                for(var i=0; i<elements.length; i++) {
+                    var text = elements[i].innerText || elements[i].textContent;
+                    if(text && (text.includes('NÕUSTUN') || text.includes('Nõustun'))) {
+                        elements[i].click();
+                        return true;
+                    }
+                }
+                return false;
+                """
+                result = sb.execute_script(js_find_any)
+                if result:
+                    print("[✓] Найдена и нажата кнопка куки (поиск по всем элементам)")
+                    cookie_clicked = True
+                    time.sleep(2)
+            except Exception as e:
+                print(f"[!] Ошибка при поиске: {e}")
+        
+        if not cookie_clicked:
+            print("[!] Кнопка куки не найдена, продолжаем...")
+        
         time.sleep(3)
         
         # 3. Ввод имени пользователя
@@ -134,7 +173,7 @@ def register_mail_ee():
         
         # 4. Проверка доступности имени
         print("\n--- ЭТАП 4: Проверка доступности имени ---")
-        if not click_button_by_text(sb, "Kontrolli saadavust", timeout=5):
+        if not force_click_button(sb, "Kontrolli saadavust", timeout=5):
             print("[-] Не найдена кнопка проверки")
             return False
         
@@ -161,6 +200,7 @@ def register_mail_ee():
         print("\n--- ЭТАП 6: Отметка галочек ---")
         try:
             checkboxes = sb.find_elements("//input[@type='checkbox']")
+            print(f"[*] Найдено галочек: {len(checkboxes)}")
             for i, cb in enumerate(checkboxes):
                 if not cb.is_selected():
                     sb.execute_script("arguments[0].click();", cb)
@@ -171,7 +211,7 @@ def register_mail_ee():
         
         # 7. Создание аккаунта
         print("\n--- ЭТАП 7: Создание аккаунта ---")
-        if not click_button_by_text(sb, "Loo uus konto", timeout=5):
+        if not force_click_button(sb, "Loo uus konto", timeout=5):
             print("[-] Не найдена кнопка создания аккаунта")
             return False
         
@@ -206,12 +246,13 @@ def register_mail_ee():
 def main():
     print("=" * 60)
     print("Mail.ee Account Generator с SeleniumBase")
-    print("Универсальный клик по кнопкам")
+    print("Принудительный клик по кнопке (JavaScript)")
     print("=" * 60)
     print("\n⚠️ ВНИМАНИЕ:")
-    print("   - Cloudflare обходится АВТОМАТИЧЕСКИ")
-    print("   - Кнопки ищутся по тексту (NÕUSTUN, Kontrolli saadavust, Loo uus konto)")
-    print("   - hCaptcha решается ВРУЧНУЮ")
+    print("   - Браузер будет ВИДИМ")
+    print("   - Cloudflare обходится автоматически")
+    print("   - Кнопка куки ищется принудительно через JavaScript")
+    print("   - hCaptcha решается вручную")
     print("=" * 60)
     
     try:
@@ -240,8 +281,4 @@ def main():
     print("=" * 60)
 
 if __name__ == "__main__":
-    # Установка Xvfb если нужно
-    import os
-    os.system("sudo apt install -y xvfb 2>/dev/null || true")
-    
     main()
