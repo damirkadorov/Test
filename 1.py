@@ -2,154 +2,221 @@
 # -*- coding: utf-8 -*-
 
 """
-Mail.ee Auto-Registrator
-Финальная версия с правильными ID элементов
+ChatGPT Auto-Registrator
+Правильные селекторы из ваших скриншотов
 """
 
 import time
 import random
 import string
 import os
+import requests
+import re
 
 from seleniumbase import SB
 
 # ===================== НАСТРОЙКИ =====================
-OUTPUT_FILE = "mail_ee_accounts.txt"
+EMAILS_FILE = "emails.txt"
+OUTPUT_FILE = "chatgpt_accounts.txt"
+FIRSTMAIL_API = "https://firstmail.ltd/api/v1/email/messages"
+FIRSTMAIL_TOKEN = "kv3wxML6Ibxo2ok1SPJCVonQIM09TWDgqjf0_S3BcVWIfvZVx9XlqcioEKn6qiXt"
+DELAY_STEP = 5
 # =====================================================
 
-FIRST_NAMES = ["mari", "juri", "anna", "kristi", "tarmo", "liisa", "janek", "kadri", "rain", "silja", "marten", "merle", "andres", "triin", "priit"]
-LAST_NAMES = ["jari", "tamm", "saar", "kask", "sepp", "mets", "pärn", "rebase", "ojamaa", "kallas", "mägi", "rand", "veski", "laur", "villems"]
-
-def generate_username():
-    first = random.choice(FIRST_NAMES)
-    last = random.choice(LAST_NAMES)
-    year = random.randint(1950, 2005)
-    return f"{first}{last}{year}".lower()
-
-def generate_password():
+def generate_chatgpt_password():
     chars = string.ascii_letters + string.digits
     return ''.join(random.choices(chars, k=12))
 
-def register():
-    username = generate_username()
-    password = generate_password()
-    email = f"{username}@mail.ee"
+def get_verification_code(email, password, timeout=120):
+    headers = {
+        "Authorization": f"Bearer {FIRSTMAIL_TOKEN}",
+        "Content-Type": "application/json"
+    }
+    payload = {
+        "email": email,
+        "password": password,
+        "limit": 10,
+        "folder": "INBOX"
+    }
+    
+    start_time = time.time()
+    while time.time() - start_time < timeout:
+        print(f"[*] Проверка писем для {email}...")
+        try:
+            response = requests.post(FIRSTMAIL_API, headers=headers, json=payload)
+            if response.status_code == 200:
+                data = response.json()
+                if data.get('success'):
+                    messages = data.get('data', {}).get('messages', [])
+                    for msg in messages:
+                        from_addr = msg.get('from', [])
+                        from_str = str(from_addr[0]) if isinstance(from_addr, list) else str(from_addr)
+                        if "openai.com" in from_str or "tm.openai.com" in from_str:
+                            subject = msg.get('subject', '')
+                            body = msg.get('body', '')
+                            full_text = subject + " " + body
+                            match = re.search(r'\b(\d{6})\b', full_text)
+                            if match:
+                                print(f"[+] Код найден: {match.group(1)}")
+                                return match.group(1)
+            time.sleep(5)
+        except Exception as e:
+            print(f"[!] Ошибка API: {e}")
+            time.sleep(5)
+    
+    print(f"[-] Код не получен за {timeout} сек")
+    return None
+
+def register_chatgpt(email, email_password):
+    chatgpt_password = generate_chatgpt_password()
     
     print(f"\n{'='*50}")
-    print(f"[*] Регистрация: {email}")
-    print(f"[*] Пароль: {password}")
+    print(f"[*] Почта: {email}")
+    print(f"[*] Пароль ChatGPT: {chatgpt_password}")
     print(f"{'='*50}")
     
     with SB(uc=True, headless=False) as sb:
         
-        # 1. Открыть страницу (автообход Cloudflare)
-        print("[1] Открытие страницы...")
-        sb.uc_open_with_reconnect("https://login.mail.ee/signup?go=portal", 15)
-        time.sleep(3)
+        # ========== ЭТАП 1: Открытие ChatGPT ==========
+        print("\n--- ЭТАП 1: Открытие ChatGPT (5 сек) ---")
+        sb.uc_open_with_reconnect("https://chatgpt.com", 20)
+        time.sleep(DELAY_STEP)
         
-        # 2. Принять куки
-        print("[2] Принятие куки...")
+        # ========== ЭТАП 2: Нажатие "Log in" ==========
+        print("\n--- ЭТАП 2: Нажатие Log in (5 сек) ---")
         try:
-            sb.click("#accept-btn", timeout=5)
-            print("[✓] Куки приняты")
+            sb.click("button[data-testid='login-button']", timeout=10)
         except:
-            print("[!] Куки не найдены")
-        time.sleep(2)
+            sb.click("//button[contains(text(), 'Log in')]", timeout=10)
+        time.sleep(DELAY_STEP)
         
-        # 3. Ввод имени (kasutajanimi)
-        print("[3] Ввод имени...")
-        sb.type("#signup_user", username)
-        print(f"[✓] Имя: {username}")
-        time.sleep(2)
+        # ========== ЭТАП 3: Ввод email ==========
+        print("\n--- ЭТАП 3: Ввод email (5 сек) ---")
+        sb.type("input[name='email']", email)
+        time.sleep(DELAY_STEP)
         
-        # 4. hCaptcha (после ввода имени)
-        print("\n" + "!" * 50)
-        print("🔐 РЕШИТЕ hCaptcha ВРУЧНУЮ (капча после ввода имени)")
-        print("!" * 50)
-        input("Нажмите Enter ПОСЛЕ решения капчи...")
+        # ========== ЭТАП 4: Нажатие Continue ==========
+        print("\n--- ЭТАП 4: Нажатие Continue (5 сек) ---")
+        sb.click("button[type='submit']")
+        time.sleep(DELAY_STEP)
         
-        # 5. Проверка имени (Kontrolli saadavust)
-        print("[4] Проверка доступности имени...")
-        sb.click("#check-uname")
-        time.sleep(3)
+        # ========== ЭТАП 5: Ожидание кода ==========
+        print("\n--- ЭТАП 5: Ожидание кода подтверждения ---")
         
-        # 6. Ввод пароля (id="signup_password")
-        print("[5] Ввод пароля...")
-        sb.wait_for_element_visible("#signup_password", timeout=10)
-        sb.type("#signup_password", password)
-        print("[✓] Пароль введён")
-        time.sleep(2)
-        
-        # 7. Галочка 1: Privaatsuspoliitika (id="signup_privacy")
-        print("[6] Отметка галочек...")
+        # Ждём поле для кода
         try:
-            sb.click("#signup_privacy", timeout=5)
-            print("[✓] Принята Privaatsuspoliitika")
+            sb.wait_for_element_visible("input[name='code']", timeout=30)
+            print("[✓] Поле для кода появилось")
         except:
-            print("[!] Галочка Privaatsuspoliitika не найдена")
-        time.sleep(1)
+            print("[-] Поле для кода не появилось")
+            return False
         
-        # 8. Галочка 2: Teenuse tingimused (ищем по тексту или по class)
-        try:
-            # Ищем вторую галочку (она обычно без id)
-            checkboxes = sb.find_elements("//input[@type='checkbox']")
-            for cb in checkboxes:
-                if not cb.is_selected() and cb.get_attribute("id") != "signup_privacy":
-                    sb.execute_script("arguments[0].click();", cb)
-                    print("[✓] Приняты Teenuse tingimused")
-                    break
-        except Exception as e:
-            print(f"[!] Ошибка при отметке второй галочки: {e}")
-        time.sleep(1)
+        # Получаем код из почты
+        code = get_verification_code(email, email_password, timeout=120)
+        if not code:
+            print("[-] Не удалось получить код")
+            return False
         
-        # 9. Создание аккаунта (кнопка "Loo uus konto")
-        print("[7] Создание аккаунта...")
-        sb.click("//button[contains(text(), 'Loo uus konto')]")
-        time.sleep(3)
+        # ========== ЭТАП 6: Ввод кода ==========
+        print(f"\n--- ЭТАП 6: Ввод кода {code} (5 сек) ---")
+        sb.type("input[name='code']", code)
+        time.sleep(DELAY_STEP)
         
-        # 10. Сохранение
+        # ========== ЭТАП 7: Нажатие Continue после кода ==========
+        print("\n--- ЭТАП 7: Нажатие Continue (5 сек) ---")
+        sb.click("button[type='submit']")
+        time.sleep(DELAY_STEP)
+        
+        # ========== ЭТАП 8: Ожидание поля пароля ==========
+        print("\n--- ЭТАП 8: Ожидание поля пароля ---")
+        
+        # Поле пароля (по селекторам из вашего скриншота)
+        password_found = False
+        password_selectors = [
+            "input[name='password']",
+            "input[id*='new-password']",
+            "input[type='password']"
+        ]
+        
+        for selector in password_selectors:
+            try:
+                sb.wait_for_element_visible(selector, timeout=15)
+                print(f"[✓] Поле пароля найдено: {selector}")
+                password_found = True
+                break
+            except:
+                continue
+        
+        if not password_found:
+            print("[-] Поле пароля не найдено")
+            return False
+        
+        # ========== ЭТАП 9: Ввод пароля ==========
+        print("\n--- ЭТАП 9: Ввод пароля (5 сек) ---")
+        sb.type("input[name='password']", chatgpt_password)
+        time.sleep(DELAY_STEP)
+        
+        # ========== ЭТАП 10: Нажатие Continue ==========
+        print("\n--- ЭТАП 10: Нажатие Continue (5 сек) ---")
+        sb.click("button[type='submit']")
+        time.sleep(DELAY_STEP)
+        
+        # ========== СОХРАНЕНИЕ ==========
         with open(OUTPUT_FILE, 'a', encoding='utf-8') as f:
-            f.write(f"{email}:{password}\n")
+            f.write(f"{email}:{chatgpt_password}\n")
         
-        print(f"[+] Аккаунт сохранён: {email}")
+        print(f"\n[+] Аккаунт ChatGPT сохранён: {email}")
         return True
+
+def load_emails():
+    emails = []
+    try:
+        with open(EMAILS_FILE, 'r', encoding='utf-8') as f:
+            for line in f:
+                line = line.strip()
+                if line and ':' in line:
+                    email, pwd = line.split(':', 1)
+                    emails.append((email, pwd))
+        print(f"[+] Загружено {len(emails)} почтовых аккаунтов")
+    except FileNotFoundError:
+        print(f"[-] Файл {EMAILS_FILE} не найден!")
+        return []
+    return emails
 
 def main():
     print("=" * 60)
-    print("Mail.ee Account Generator")
-    print("Финальная версия с правильными ID")
+    print("ChatGPT Auto-Registrator")
+    print("Правильные селекторы: input[name='password']")
     print("=" * 60)
     
-    if "DISPLAY" not in os.environ:
-        os.environ["DISPLAY"] = ":0"
+    emails = load_emails()
+    if not emails:
+        return
     
     print("\n⚠️ ПОРЯДОК ДЕЙСТВИЙ:")
     print("   1. Cloudflare обходится автоматически")
-    print("   2. Куки принимаются автоматически")
-    print("   3. Вводится имя (kasutajanimi)")
-    print("   4. 🔐 ВЫ РЕШАЕТЕ hCaptcha ВРУЧНУЮ")
-    print("   5. Автоматически нажимается проверка имени")
-    print("   6. Вводится пароль (id=signup_password)")
-    print("   7. Автоматически отмечаются две галочки")
-    print("   8. Автоматически нажимается Loo uus konto")
-    print("   9. Аккаунт сохраняется")
+    print("   2. Email → Continue")
+    print("   3. Код из почты → Continue")
+    print("   4. Пароль → Continue")
     print("=" * 60)
     
     try:
-        count = int(input("\nСколько аккаунтов создать: ") or 1)
+        count = int(input("\nСколько аккаунтов создать: ") or len(emails))
+        count = min(count, len(emails))
     except:
-        count = 1
+        count = len(emails)
     
     success = 0
     for i in range(count):
+        email, email_password = emails[i]
         print(f"\n{'#'*50}")
         print(f"Аккаунт {i+1}/{count}")
         print(f"{'#'*50}")
         
-        if register():
+        if register_chatgpt(email, email_password):
             success += 1
         else:
-            print(f"[-] Ошибка")
+            print(f"[-] Аккаунт {i+1} не создан")
         
         if i < count - 1:
             print("\n[*] Ожидание 10 секунд...")
