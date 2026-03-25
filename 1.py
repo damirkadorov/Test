@@ -2,16 +2,17 @@
 # -*- coding: utf-8 -*-
 
 """
-Tuta (Tutanota) Account Generator
-Регистрация без SMS, но с 48-часовой задержкой активации
+Mail.ee Auto-Registrator
+Создание почтовых ящиков с IMAP/SMTP доступом для ChatGPT
+Регистрация без SMS
 """
 
 import time
 import random
 import string
-import requests
-import json
+import os
 import sys
+
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait, Select
@@ -20,34 +21,37 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 
 # ===================== НАСТРОЙКИ =====================
-OUTPUT_FILE = "tuta_accounts.txt"
-TUTA_DOMAINS = ["tuta.com", "tutanota.com", "tutamail.com", "tuta.io", "keemail.me"]
+OUTPUT_FILE = "mail_ee_accounts.txt"
 DELAY_BETWEEN = 10
+MAIL_EE_URL = "https://www.mail.ee"
 # =====================================================
 
-def generate_username(length=12):
-    """Генерирует случайное имя пользователя"""
+def generate_username(length=10):
     chars = string.ascii_lowercase + string.digits
     return ''.join(random.choices(chars, k=length))
 
 def generate_password(length=14):
-    """Генерирует надёжный пароль"""
     chars = string.ascii_letters + string.digits + "!@#$%^&*"
     return ''.join(random.choices(chars, k=length))
 
-def generate_recovery_code():
-    """Генерирует recovery-код Tuta (сохранить обязательно!)"""
-    chars = string.ascii_uppercase + string.digits
-    return ''.join(random.choices(chars, k=16))
+def get_chromedriver_path():
+    """Находит путь к chromedriver"""
+    possible_paths = [
+        "/usr/bin/chromedriver",
+        "/usr/local/bin/chromedriver",
+        os.path.expanduser("~") + "/.local/bin/chromedriver",
+    ]
+    for path in possible_paths:
+        if os.path.exists(path):
+            return path
+    return None
 
-def register_tuta_account():
-    """Регистрирует аккаунт Tuta через Selenium"""
+def register_mail_ee():
+    """Регистрирует ящик на Mail.ee"""
     
-    domain = random.choice(TUTA_DOMAINS)
     username = generate_username()
-    email = f"{username}@{domain}"
     password = generate_password()
-    recovery_code = generate_recovery_code()
+    email = f"{username}@mail.ee"
     
     print(f"[*] Регистрация: {email}")
     
@@ -56,71 +60,94 @@ def register_tuta_account():
     options.add_argument("--disable-blink-features=AutomationControlled")
     options.add_experimental_option("excludeSwitches", ["enable-automation"])
     
-    # Путь к chromedriver
-    from webdriver_manager.chrome import ChromeDriverManager
-    service = Service(ChromeDriverManager().install())
-    driver = webdriver.Chrome(service=service, options=options)
+    # Используем системный chromedriver
+    driver_path = get_chromedriver_path()
+    if driver_path:
+        service = Service(driver_path)
+        driver = webdriver.Chrome(service=service, options=options)
+    else:
+        print("[-] chromedriver не найден! Установите: sudo apt install chromium-driver")
+        return None
     
     try:
-        driver.get("https://app.tuta.com")
+        driver.get(MAIL_EE_URL)
+        print("[*] Открыта страница Mail.ee")
         time.sleep(3)
         
-        wait = WebDriverWait(driver, 20)
+        wait = WebDriverWait(driver, 30)
         
-        # Нажать "Sign up"
-        signup_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Sign up')]")))
-        signup_btn.click()
-        time.sleep(2)
-        
-        # Выбрать бесплатный тариф
-        free_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Free')]")))
-        free_btn.click()
-        time.sleep(2)
-        
-        # Ввести email
-        email_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']")))
-        email_field.clear()
-        email_field.send_keys(email)
-        time.sleep(1)
-        
-        # Выбрать домен (если нужно)
+        # Нажимаем "Регистрация" / "Sign up"
         try:
-            domain_select = Select(driver.find_element(By.CSS_SELECTOR, "select"))
-            domain_select.select_by_visible_text(domain)
+            signup_btn = wait.until(EC.element_to_be_clickable(
+                (By.XPATH, "//a[contains(text(), 'Регистрация')] | //a[contains(text(), 'Sign up')]")
+            ))
+            signup_btn.click()
+            print("[*] Нажата кнопка регистрации")
+            time.sleep(2)
         except:
-            pass
+            print("[*] Ищу форму регистрации...")
         
-        # Ввести пароль
-        password_field = driver.find_element(By.CSS_SELECTOR, "input[type='password']")
-        password_field.clear()
-        password_field.send_keys(password)
+        # Поле имени пользователя
+        username_field = wait.until(EC.presence_of_element_located((By.NAME, "username")))
+        username_field.send_keys(username)
         time.sleep(1)
+        
+        # Поле пароля
+        password_field = driver.find_element(By.NAME, "password")
+        password_field.send_keys(password)
         
         # Подтверждение пароля
-        confirm_field = driver.find_element(By.XPATH, "//input[@type='password'][2]")
-        confirm_field.clear()
+        confirm_field = driver.find_element(By.NAME, "password2")
         confirm_field.send_keys(password)
         
-        # Нажать "Next"
-        next_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Next')]")))
-        next_btn.click()
-        time.sleep(3)
+        # CAPTCHA (ручное решение)
+        print("[!] Решите CAPTCHA вручную в открытом браузере...")
+        input("Нажмите Enter после решения CAPTCHA...")
         
-        # Сохранить recovery-код (Tuta показывает его после регистрации)
-        print(f"[!] ВАЖНО: Сохраните recovery-код: {recovery_code}")
-        
-        # Завершение регистрации
-        finish_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Finish')]")))
-        finish_btn.click()
+        # Кнопка регистрации
+        register_btn = driver.find_element(By.XPATH, "//button[@type='submit'] | //input[@type='submit']")
+        register_btn.click()
         
         time.sleep(5)
+        
+        # Проверка успешности
+        if "error" in driver.current_url.lower():
+            print("[-] Ошибка регистрации")
+            return None
+        
+        # Включаем IMAP/POP3 доступ (важно для автоматизации!)
+        print("[*] Включаю IMAP/POP3 доступ...")
+        try:
+            # Переходим в настройки
+            settings_link = wait.until(EC.element_to_be_clickable(
+                (By.XPATH, "//a[contains(text(), 'Settings')] | //a[contains(text(), 'Настройки')]")
+            ))
+            settings_link.click()
+            time.sleep(2)
+            
+            # Находим опцию "Enable external POP3/IMAP and SMTP access"
+            enable_checkbox = driver.find_element(By.XPATH, 
+                "//input[@type='checkbox' and contains(@value, 'pop3')] | //input[@value='enable_pop3']")
+            if not enable_checkbox.is_selected():
+                enable_checkbox.click()
+                print("[*] Включён внешний доступ (IMAP/POP3)")
+            
+            # Сохраняем настройки
+            save_btn = driver.find_element(By.XPATH, "//input[@type='submit'] | //button[@type='submit']")
+            save_btn.click()
+            print("[*] Настройки сохранены")
+            time.sleep(2)
+        except Exception as e:
+            print(f"[!] Не удалось включить IMAP: {e}")
         
         account = {
             "email": email,
             "password": password,
-            "recovery_code": recovery_code,
-            "domain": domain,
-            "status": "pending_activation",  # 48h задержка
+            "username": username,
+            "imap_server": "mail.ee",
+            "imap_port": 993,
+            "smtp_server": "mail.ee",
+            "smtp_port": 587,
             "created": time.strftime("%Y-%m-%d %H:%M:%S")
         }
         
@@ -135,16 +162,18 @@ def register_tuta_account():
 def save_account(account):
     """Сохраняет аккаунт в файл"""
     with open(OUTPUT_FILE, 'a', encoding='utf-8') as f:
-        f.write(f"{account['email']}:{account['password']}:{account['recovery_code']}\n")
-        f.write(f"# Статус: {account['status']} - создан {account['created']}\n")
+        f.write(f"{account['email']}:{account['password']}\n")
+        f.write(f"# IMAP: {account['imap_server']}:{account['imap_port']} (SSL)\n")
+        f.write(f"# SMTP: {account['smtp_server']}:{account['smtp_port']} (TLS)\n")
+        f.write(f"# Создан: {account['created']}\n")
+        f.write("-" * 40 + "\n")
     
     print(f"[+] Сохранён: {account['email']}")
-    print(f"[+] Recovery: {account['recovery_code']}")
 
 def main():
     print("=" * 60)
-    print("Tuta (Tutanota) Account Generator")
-    print("ВНИМАНИЕ: После регистрации требуется 48 часов для активации!")
+    print("Mail.ee Account Generator")
+    print("Поддержка IMAP/SMTP для ChatGPT")
     print("=" * 60)
     
     try:
@@ -154,7 +183,7 @@ def main():
     
     for i in range(count):
         print(f"\n--- {i+1}/{count} ---")
-        account = register_tuta_account()
+        account = register_mail_ee()
         if account:
             save_account(account)
         else:
@@ -164,9 +193,12 @@ def main():
             time.sleep(DELAY_BETWEEN)
     
     print("\n" + "=" * 60)
-    print("✅ Генерация завершена")
-    print(f"📁 Файл: {OUTPUT_FILE}")
-    print("⚠️ Аккаунты активируются через 48 часов!")
+    print(f"✅ Готово! Сохранено в {OUTPUT_FILE}")
+    print("\n📧 Настройки IMAP для почтовой программы:")
+    print("   IMAP сервер: mail.ee")
+    print("   IMAP порт: 993 (SSL)")
+    print("   SMTP сервер: mail.ee")
+    print("   SMTP порт: 587 (TLS) или 465 (SSL)")
     print("=" * 60)
 
 if __name__ == "__main__":
