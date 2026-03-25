@@ -3,7 +3,7 @@
 
 """
 ChatGPT Auto-Registrator
-Фиксированный пароль: Mudakiv12345@
+Фиксированный пароль + JavaScript ввод
 """
 
 import time
@@ -21,7 +21,7 @@ OUTPUT_FILE = "chatgpt_accounts.txt"
 FIRSTMAIL_API = "https://firstmail.ltd/api/v1/email/messages"
 FIRSTMAIL_TOKEN = "kv3wxML6Ibxo2ok1SPJCVonQIM09TWDgqjf0_S3BcVWIfvZVx9XlqcioEKn6qiXt"
 DELAY_STEP = 5
-FIXED_PASSWORD = "Mudakiv12345@"  # Фиксированный пароль
+FIXED_PASSWORD = "Mudakiv12345@"
 # =====================================================
 
 def get_verification_code(email, password, timeout=120):
@@ -127,33 +127,47 @@ def register_chatgpt(email, email_password):
         # ========== ЭТАП 8: Ожидание поля пароля ==========
         print("\n--- ЭТАП 8: Ожидание поля пароля ---")
         
-        # Поле пароля - пробуем разные варианты
-        password_selectors = [
-            "input[name='password']",
-            "input[type='password']",
-            "input[id*='password']",
-            "input[id*='new-password']"
-        ]
-        
-        password_field = None
-        for selector in password_selectors:
+        # Ждём появление поля пароля
+        try:
+            sb.wait_for_element_visible("input[name='password']", timeout=15)
+            print("[✓] Поле пароля появилось")
+        except:
             try:
-                password_field = sb.find_element(selector, timeout=5)
-                if password_field and password_field.is_displayed():
-                    print(f"[✓] Поле пароля найдено: {selector}")
-                    break
+                sb.wait_for_element_visible("input[type='password']", timeout=10)
+                print("[✓] Поле пароля появилось (type=password)")
             except:
-                continue
+                print("[-] Поле пароля не появилось")
+                return False
         
-        if not password_field:
-            print("[-] Поле пароля не найдено")
-            return False
+        # ========== ЭТАП 9: Ввод пароля через JavaScript ==========
+        print("\n--- ЭТАП 9: Ввод пароля через JavaScript (5 сек) ---")
         
-        # ========== ЭТАП 9: Ввод пароля ==========
-        print("\n--- ЭТАП 9: Ввод пароля (5 сек) ---")
-        password_field.clear()
-        password_field.send_keys(chatgpt_password)
-        print(f"[✓] Пароль введён: {chatgpt_password}")
+        # Способ 1: JavaScript
+        js_set_value = """
+        var inputs = document.querySelectorAll('input[type="password"], input[name="password"]');
+        if (inputs.length > 0) {
+            inputs[0].value = arguments[0];
+            inputs[0].dispatchEvent(new Event('input', { bubbles: true }));
+            inputs[0].dispatchEvent(new Event('change', { bubbles: true }));
+            return true;
+        }
+        return false;
+        """
+        
+        result = sb.execute_script(js_set_value, chatgpt_password)
+        if result:
+            print(f"[✓] Пароль введён через JavaScript: {chatgpt_password}")
+        else:
+            # Способ 2: обычный send_keys
+            try:
+                password_field = sb.find_element("input[name='password']")
+                password_field.clear()
+                password_field.send_keys(chatgpt_password)
+                print(f"[✓] Пароль введён через send_keys: {chatgpt_password}")
+            except:
+                print("[-] Не удалось ввести пароль")
+                return False
+        
         time.sleep(DELAY_STEP)
         
         # ========== ЭТАП 10: Нажатие Continue ==========
@@ -187,6 +201,7 @@ def main():
     print("=" * 60)
     print("ChatGPT Auto-Registrator")
     print(f"Фиксированный пароль: {FIXED_PASSWORD}")
+    print("Ввод пароля через JavaScript")
     print("=" * 60)
     
     emails = load_emails()
