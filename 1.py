@@ -3,7 +3,7 @@
 
 """
 ChatGPT Registration Bot
-Правильный порядок: Email → Пароль → Код → Имя/Дата
+Универсальный поиск полей по HTML (лейблы, placeholder)
 """
 
 import time
@@ -33,7 +33,6 @@ def human_type(element, text, delay_min=0.05, delay_max=0.15):
         time.sleep(random.uniform(delay_min, delay_max))
 
 def get_verification_code(email, password, timeout=120):
-    """Получает код подтверждения через IMAP Firstmail"""
     try:
         mail = imaplib.IMAP4_SSL(FIRSTMAIL_IMAP, FIRSTMAIL_IMAP_PORT)
         mail.login(email, password)
@@ -80,6 +79,138 @@ def get_verification_code(email, password, timeout=120):
     
     return None
 
+def find_field_by_label(sb, label_text, timeout=5):
+    """Ищет поле ввода по тексту лейбла"""
+    try:
+        # Ищем лейбл с текстом
+        xpath = f"//label[contains(text(), '{label_text}')]"
+        label = sb.find_element(xpath, timeout=timeout)
+        if label:
+            # Ищем связанный input
+            for_id = label.get_attribute("for")
+            if for_id:
+                try:
+                    field = sb.find_element(f"#{for_id}", timeout=2)
+                    if field:
+                        return field
+                except:
+                    pass
+            
+            # Ищем input рядом с лейблом
+            try:
+                field = sb.find_element(f"{xpath}/following-sibling::input", timeout=2)
+                if field:
+                    return field
+            except:
+                pass
+            
+            # Ищем input внутри родителя
+            try:
+                field = sb.find_element(f"{xpath}/ancestor::div//input", timeout=2)
+                if field:
+                    return field
+            except:
+                pass
+    except:
+        pass
+    return None
+
+def find_field_by_placeholder(sb, placeholder_text, timeout=5):
+    """Ищет поле ввода по placeholder"""
+    try:
+        field = sb.find_element(f"input[placeholder*='{placeholder_text}']", timeout=timeout)
+        if field:
+            return field
+    except:
+        pass
+    return None
+
+def find_field_by_type(sb, input_type, timeout=5):
+    """Ищет поле ввода по типу"""
+    try:
+        field = sb.find_element(f"input[type='{input_type}']", timeout=timeout)
+        if field:
+            return field
+    except:
+        pass
+    return None
+
+def find_password_field(sb, timeout=10):
+    """Ищет поле пароля разными способами"""
+    
+    # Способ 1: по лейблу "Password"
+    field = find_field_by_label(sb, "Password", timeout)
+    if field:
+        print("[✓] Поле пароля найдено по лейблу 'Password'")
+        return field
+    
+    # Способ 2: по лейблу "Пароль"
+    field = find_field_by_label(sb, "Пароль", timeout)
+    if field:
+        print("[✓] Поле пароля найдено по лейблу 'Пароль'")
+        return field
+    
+    # Способ 3: по placeholder "Password"
+    field = find_field_by_placeholder(sb, "Password", timeout)
+    if field:
+        print("[✓] Поле пароля найдено по placeholder 'Password'")
+        return field
+    
+    # Способ 4: по типу password
+    field = find_field_by_type(sb, "password", timeout)
+    if field:
+        print("[✓] Поле пароля найдено по type='password'")
+        return field
+    
+    # Способ 5: по атрибуту name содержащему password
+    try:
+        field = sb.find_element("input[name*='password']", timeout=timeout)
+        if field:
+            print("[✓] Поле пароля найдено по name*='password'")
+            return field
+    except:
+        pass
+    
+    print("[-] Поле пароля не найдено")
+    return None
+
+def find_name_field(sb, timeout=5):
+    """Ищет поле имени"""
+    for label in ["First name", "Name", "Имя", "Full name"]:
+        field = find_field_by_label(sb, label, timeout)
+        if field:
+            return field
+    
+    for placeholder in ["Name", "First name", "Имя"]:
+        field = find_field_by_placeholder(sb, placeholder, timeout)
+        if field:
+            return field
+    
+    try:
+        field = sb.find_element("input[name='first_name']", timeout=timeout)
+        if field:
+            return field
+    except:
+        pass
+    
+    return None
+
+def find_date_field(sb, timeout=5):
+    """Ищет поле даты рождения"""
+    for label in ["Birth date", "Date of birth", "Дата рождения"]:
+        field = find_field_by_label(sb, label, timeout)
+        if field:
+            return field
+    
+    try:
+        field = sb.find_element("input[type='date']", timeout=timeout)
+        if field:
+            return field
+    except:
+        pass
+    
+    return None
+
 def register_chatgpt(email, email_password):
     chatgpt_password = FIXED_PASSWORD
     
@@ -90,12 +221,12 @@ def register_chatgpt(email, email_password):
     
     with SB(uc=True, headless=False) as sb:
         
-        # ========== 1. Открытие ChatGPT ==========
+        # 1. Открытие
         print("\n[1] Открытие ChatGPT...")
         sb.uc_open_with_reconnect("https://chatgpt.com", 20)
         time.sleep(DELAY_STEP)
         
-        # ========== 2. Нажатие Sign up ==========
+        # 2. Sign up
         print("\n[2] Нажатие Sign up...")
         try:
             sb.click("button[data-testid='signup-button']", timeout=10)
@@ -103,29 +234,41 @@ def register_chatgpt(email, email_password):
             sb.click("//button[contains(text(), 'Sign up')]", timeout=10)
         time.sleep(DELAY_STEP)
         
-        # ========== 3. Ввод email ==========
+        # 3. Email
         print("\n[3] Ввод email...")
-        email_field = sb.find_element("input[name='email']")
-        human_type(email_field, email)
+        email_field = find_field_by_type(sb, "email", 10)
+        if not email_field:
+            email_field = find_field_by_label(sb, "Email", 10)
+        if email_field:
+            human_type(email_field, email)
+            print(f"[✓] Email: {email}")
+        else:
+            print("[-] Поле email не найдено")
+            return False
         time.sleep(DELAY_STEP)
         
-        # ========== 4. Continue ==========
+        # 4. Continue после email
         print("\n[4] Continue...")
         sb.click("button[type='submit']")
         time.sleep(DELAY_STEP)
         
-        # ========== 5. Ввод пароля ==========
-        print("\n[5] Ввод пароля...")
-        password_field = sb.find_element("input[name='password']")
+        # 5. Пароль
+        print("\n[5] Поиск поля пароля...")
+        password_field = find_password_field(sb, timeout=10)
+        if not password_field:
+            print("[-] Поле пароля не найдено")
+            return False
+        
         human_type(password_field, chatgpt_password)
+        print(f"[✓] Пароль: {chatgpt_password}")
         time.sleep(DELAY_STEP)
         
-        # ========== 6. Continue ==========
+        # 6. Continue после пароля
         print("\n[6] Continue...")
         sb.click("button[type='submit']")
         time.sleep(DELAY_STEP)
         
-        # ========== 7. Ожидание поля для кода ==========
+        # 7. Ожидание кода
         print("\n[7] Ожидание кода...")
         try:
             sb.wait_for_element_visible("input[name='code']", timeout=30)
@@ -134,62 +277,56 @@ def register_chatgpt(email, email_password):
             print("[-] Поле кода не появилось")
             return False
         
-        # ========== 8. Получение кода из почты ==========
+        # 8. Получение кода
         print("\n[8] Получение кода...")
         code = get_verification_code(email, email_password, timeout=120)
         if not code:
             return False
         
-        # ========== 9. Ввод кода ==========
+        # 9. Ввод кода
         print(f"\n[9] Ввод кода: {code}")
         code_field = sb.find_element("input[name='code']")
         human_type(code_field, code)
         time.sleep(DELAY_STEP)
         
-        # ========== 10. Continue ==========
+        # 10. Continue после кода
         print("\n[10] Continue...")
         sb.click("button[type='submit']")
         time.sleep(DELAY_STEP)
         
-        # ========== 11. Ввод имени (если появится) ==========
-        print("\n[11] Проверка поля имени...")
-        try:
-            name_field = sb.find_element("input[name='first_name']", timeout=5)
-            if name_field and name_field.is_displayed():
-                human_type(name_field, "John Smith")
-                print("[✓] Имя введено: John Smith")
+        # 11. Имя
+        print("\n[11] Поиск поля имени...")
+        name_field = find_name_field(sb, timeout=5)
+        if name_field:
+            human_type(name_field, "John Smith")
+            print("[✓] Имя: John Smith")
+            time.sleep(DELAY_STEP)
+            try:
+                sb.click("button[type='submit']")
+                print("[✓] Continue после имени")
                 time.sleep(DELAY_STEP)
-                
-                # Нажимаем Continue если есть
-                try:
-                    sb.click("button[type='submit']")
-                    print("[✓] Continue после имени")
-                    time.sleep(DELAY_STEP)
-                except:
-                    pass
-        except:
+            except:
+                pass
+        else:
             print("[!] Поле имени не найдено")
         
-        # ========== 12. Ввод даты рождения (если появится) ==========
-        print("\n[12] Проверка поля даты...")
-        try:
-            date_field = sb.find_element("input[type='date']", timeout=5)
-            if date_field and date_field.is_displayed():
-                human_type(date_field, "2000-01-01")
-                print("[✓] Дата введена: 2000-01-01")
+        # 12. Дата рождения
+        print("\n[12] Поиск поля даты...")
+        date_field = find_date_field(sb, timeout=5)
+        if date_field:
+            human_type(date_field, "2000-01-01")
+            print("[✓] Дата: 2000-01-01")
+            time.sleep(DELAY_STEP)
+            try:
+                sb.click("button[type='submit']")
+                print("[✓] Continue после даты")
                 time.sleep(DELAY_STEP)
-                
-                # Нажимаем Continue если есть
-                try:
-                    sb.click("button[type='submit']")
-                    print("[✓] Continue после даты")
-                    time.sleep(DELAY_STEP)
-                except:
-                    pass
-        except:
+            except:
+                pass
+        else:
             print("[!] Поле даты не найдено")
         
-        # ========== СОХРАНЕНИЕ ==========
+        # Сохранение
         with open(OUTPUT_FILE, 'a', encoding='utf-8') as f:
             f.write(f"{email}:{chatgpt_password}\n")
         
@@ -213,8 +350,7 @@ def load_emails():
 def main():
     print("=" * 60)
     print("ChatGPT Registration Bot")
-    print(f"Пароль: {FIXED_PASSWORD}")
-    print("Порядок: Email → Пароль → Код → Имя/Дата")
+    print("Универсальный поиск полей (по лейблам, placeholder, типу)")
     print("=" * 60)
     
     emails = load_emails()
